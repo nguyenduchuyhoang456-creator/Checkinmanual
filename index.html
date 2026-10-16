@@ -742,12 +742,11 @@ function render() {
     const info = document.createElement('div');
     info.className = 'guest-info';
     let badges = '';
-    if (g.qty > 1) badges += '<span class="badge badge-seq">Khách ' + g.seq + '/' + g.qty + '</span>';
     if (g.table) badges += '<span class="badge badge-table">Bàn ' + esc(g.table) + '</span>';
     if (g.ticket) badges += '<span class="badge badge-ticket">' + esc(g.ticket) + '</span>';
     if (g.group) badges += '<span class="badge badge-group">Nhóm ' + esc(g.group) + '</span>';
     info.innerHTML =
-      '<div class="guest-name">' + esc(g.name) + (g.qty > 1 ? ' <span style="color:var(--text3);font-weight:400;">(' + g.seq + '/' + g.qty + ')</span>' : '') + '</div>' +
+      '<div class="guest-name">' + esc(g.name) + '</div>' +
       (g.phone ? '<div style="font-size:12px;color:#6b6b67;margin-top:3px;">📞 ' + esc(g.phone) + '</div>' : '') +
       (badges ? '<div class="guest-badges">' + badges + '</div>' : '');
 
