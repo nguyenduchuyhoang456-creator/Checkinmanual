@@ -204,6 +204,7 @@
   .badge-ticket { background: var(--blue-bg); color: var(--blue-text); }
   .badge-group { background: var(--amber-bg); color: var(--amber-text); }
   .badge-table { background: var(--purple-bg); color: var(--purple-text); }
+  .badge-seq { background: var(--green-bg); color: var(--green-text); }
 
   .guest-time { font-size: 12px; color: var(--green-text); font-weight: 500; flex-shrink: 0; text-align: right; }
   .guest-time .by { display: block; color: var(--text3); font-weight: 400; }
@@ -318,7 +319,7 @@
   <div id="upload-zone">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
     <h2>Upload danh sách khách</h2>
-    <p>Cột 1: Họ và tên — Cột 2: Số điện thoại — Cột 3: Nguồn — Cột 4: Số lượng khách — Cột 5: Bàn<br>Hàng đầu có thể là header, tool tự nhận diện</p>
+    <p>Cột 1: Họ và tên — Cột 2: Số điện thoại — Cột 3: Nguồn — Cột 4: Số lượng khách — Cột 5: Bàn<br>Hàng đầu có thể là header, tool tự nhận diện<br>Số lượng khách ghi 2, 3... hệ thống sẽ tự tách thành từng dòng riêng để check-in và kiểm soát từng người</p>
     <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none">
     <button class="btn btn-primary" id="choose-file-btn">↑ Chọn file Excel</button>
     <p class="hint">Hoặc kéo thả file vào đây · Danh sách và trạng thái check-in sẽ đồng bộ ngay cho mọi thiết bị đang mở trang này</p>
@@ -597,15 +598,26 @@ function loadFile(file) {
         const r = rows[i];
         const name = String(r[0]||'').trim();
         if (!name) continue;
-        const id = 'g' + i;
-        loaded[id] = {
-          name,
-          phone: String(r[1]||'').trim(),
-          ticket: String(r[2]||'').trim(),
-          group: String(r[3]||'').trim(),
-          table: String(r[4]||'').trim(),
-          _order: order++
-        };
+        const phone = String(r[1]||'').trim();
+        const ticket = String(r[2]||'').trim();
+        const groupRaw = String(r[3]||'').trim();
+        const table = String(r[4]||'').trim();
+        // Nếu cột "Số lượng khách" là một số > 1, tách thành nhiều dòng riêng — mỗi dòng 1 khách, check-in độc lập
+        const qtyNum = parseInt(groupRaw);
+        const qty = (!isNaN(qtyNum) && qtyNum > 1) ? qtyNum : 1;
+        for (let k = 1; k <= qty; k++) {
+          const id = qty > 1 ? ('g' + i + '_' + k) : ('g' + i);
+          loaded[id] = {
+            name,
+            phone,
+            ticket,
+            group: groupRaw,
+            table,
+            seq: qty > 1 ? k : 0,
+            qty: qty,
+            _order: order++
+          };
+        }
       }
       if (!Object.keys(loaded).length) { toast('Không đọc được dữ liệu — kiểm tra lại file'); return; }
 
@@ -730,11 +742,12 @@ function render() {
     const info = document.createElement('div');
     info.className = 'guest-info';
     let badges = '';
+    if (g.qty > 1) badges += '<span class="badge badge-seq">Khách ' + g.seq + '/' + g.qty + '</span>';
     if (g.table) badges += '<span class="badge badge-table">Bàn ' + esc(g.table) + '</span>';
     if (g.ticket) badges += '<span class="badge badge-ticket">' + esc(g.ticket) + '</span>';
-    if (g.group) badges += '<span class="badge badge-group">' + esc(g.group) + '</span>';
+    if (g.group) badges += '<span class="badge badge-group">Nhóm ' + esc(g.group) + '</span>';
     info.innerHTML =
-      '<div class="guest-name">' + esc(g.name) + '</div>' +
+      '<div class="guest-name">' + esc(g.name) + (g.qty > 1 ? ' <span style="color:var(--text3);font-weight:400;">(' + g.seq + '/' + g.qty + ')</span>' : '') + '</div>' +
       (g.phone ? '<div style="font-size:12px;color:#6b6b67;margin-top:3px;">📞 ' + esc(g.phone) + '</div>' : '') +
       (badges ? '<div class="guest-badges">' + badges + '</div>' : '');
 
@@ -800,6 +813,9 @@ async function toggle(id) {
 }
 
 function getGuestQty(g) {
+  // Từ bản cập nhật này, mỗi dòng khách đã được tách sẵn = 1 khách (xem loadFile).
+  // Giữ fallback cho dữ liệu cũ đã đồng bộ trước đây (chưa tách dòng, trường qty chưa có).
+  if (g.qty != null) return 1;
   const qty = parseInt(g.group);
   return isNaN(qty) || qty <= 0 ? 1 : qty;
 }
@@ -866,18 +882,18 @@ async function doReset() {
 
 /* ===================== Export ───────────────────────────── */
 function exportXLSX() {
-  const rows = [['Họ tên', 'Số điện thoại', 'Nguồn', 'Số lượng khách', 'Bàn', 'Trạng thái', 'Giờ check-in', 'Người check-in']];
+  const rows = [['Họ tên', 'Khách thứ', 'Số điện thoại', 'Nguồn', 'Số lượng khách (nhóm)', 'Bàn', 'Trạng thái', 'Giờ check-in', 'Người check-in']];
   guests.forEach(g => {
     const c = checkedMap[g.id];
     rows.push([
-      g.name, g.phone, g.ticket, g.group, g.table,
+      g.name, (g.qty > 1 ? (g.seq + '/' + g.qty) : ''), g.phone, g.ticket, g.group, g.table,
       c ? 'Đã check-in' : 'Chưa đến',
       c ? c.time : '',
       c ? (c.by || '') : ''
     ]);
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+  ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Kết quả check-in');
   XLSX.writeFile(wb, 'ketqua-checkin-' + new Date().toLocaleDateString('vi-VN').replace(/\//g,'-') + '.xlsx');
