@@ -587,24 +587,56 @@ function loadFile(file) {
     try {
       const wb = XLSX.read(ev.target.result, { type: 'array' });
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-      let start = 0;
-      if (rows[0]) {
-        const h = String(rows[0][0]).toLowerCase();
-        if (h.includes('tên') || h.includes('name') || h.includes('họ') || h.includes('stt') || h.includes('no')) start = 1;
+      // Đọc theo tên cột nếu Excel có header; nếu không có header thì dùng thứ tự mặc định:
+      // A=Tên, B=SĐT, C=Nguồn/Vé, D=Số lượng khách/Nhóm, E=Bàn.
+      const normalizeHeader = value => String(value == null ? '' : value)
+        .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+      const header = (rows[0] || []).map(normalizeHeader);
+      const findCol = patterns => header.findIndex(h => patterns.some(p => p.test(h)));
+      const nameCol = findCol([/hoten/, /tenkhach/, /^ten$/, /fullname|guestname|^name$/]);
+      const phoneCol = findCol([/sodienthoai|dienthoai|sdt|phonenumber|mobile|^phone$/]);
+      const ticketCol = findCol([/^nguon$/, /loaive|^ve$|^ticket$|^source$|category/]);
+      const qtyCol = findCol([/soluongkhach|slkhach|quantity|guestcount|numberofguests|^qty$|^soluong$|^sl$|^group$/]);
+      const tableCol = findCol([/soban|^ban$|table/]);
+      const hasHeader = nameCol >= 0 || phoneCol >= 0 || qtyCol >= 0 || tableCol >= 0 ||
+        (rows[0] && /ten|name|ho|stt|no/.test(normalizeHeader(rows[0][0])));
+      const start = hasHeader ? 1 : 0;
+      const col = {
+        name: nameCol >= 0 ? nameCol : 0,
+        phone: phoneCol >= 0 ? phoneCol : 1,
+        ticket: ticketCol >= 0 ? ticketCol : 2,
+        qty: qtyCol >= 0 ? qtyCol : 3,
+        table: tableCol >= 0 ? tableCol : 4
+      };
+
+      // Nhận số lượng từ ô số Excel hoặc chuỗi như "2 khách", "2 người", "x 2".
+      // Chỉ lấy số ở đầu chuỗi để tránh hiểu nhầm tên nhóm như "VIP 2" là 2 khách.
+      function parseGuestQuantity(value) {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          return Math.max(1, Math.floor(value));
+        }
+        const raw = String(value == null ? '' : value).trim();
+        if (!raw) return 1;
+        const match = raw.match(/^(?:x\s*)?(\d+(?:[.,]\d+)?)(?:\s*(?:khách|khach|người|nguoi|pax|guest|guests))?\s*$/i)
+          || raw.match(/^x\s*(\d+)\s*$/i);
+        if (!match) return 1;
+        const n = Math.floor(Number(String(match[1]).replace(',', '.')));
+        return Number.isFinite(n) && n >= 1 ? n : 1;
       }
+
       const loaded = {};
       let order = 0;
       for (let i = start; i < rows.length; i++) {
         const r = rows[i];
-        const name = String(r[0]||'').trim();
+        const name = String(r[col.name] == null ? '' : r[col.name]).trim();
         if (!name) continue;
-        const phone = String(r[1]||'').trim();
-        const ticket = String(r[2]||'').trim();
-        const groupRaw = String(r[3]||'').trim();
-        const table = String(r[4]||'').trim();
-        // Nếu cột "Số lượng khách" là một số > 1, tách thành nhiều dòng riêng — mỗi dòng 1 khách, check-in độc lập
-        const qtyNum = parseInt(groupRaw);
-        const qty = (!isNaN(qtyNum) && qtyNum > 1) ? qtyNum : 1;
+        const phone = String(r[col.phone] == null ? '' : r[col.phone]).trim();
+        const ticket = String(r[col.ticket] == null ? '' : r[col.ticket]).trim();
+        const groupRaw = String(r[col.qty] == null ? '' : r[col.qty]).trim();
+        const table = String(r[col.table] == null ? '' : r[col.table]).trim();
+        // Tạo một bản ghi độc lập cho từng khách; giữ nguyên thông tin chung của dòng Excel.
+        const qty = parseGuestQuantity(r[col.qty]);
         for (let k = 1; k <= qty; k++) {
           const id = qty > 1 ? ('g' + i + '_' + k) : ('g' + i);
           loaded[id] = {
@@ -744,7 +776,7 @@ function render() {
     let badges = '';
     if (g.table) badges += '<span class="badge badge-table">Bàn ' + esc(g.table) + '</span>';
     if (g.ticket) badges += '<span class="badge badge-ticket">' + esc(g.ticket) + '</span>';
-    if (g.group) badges += '<span class="badge badge-group">Nhóm ' + esc(g.group) + '</span>';
+    if (g.group) badges += '<span class="badge badge-group">Bàn ' + esc(g.group) + '</span>';
     info.innerHTML =
       '<div class="guest-name">' + esc(g.name) + '</div>' +
       (g.phone ? '<div style="font-size:12px;color:#6b6b67;margin-top:3px;">📞 ' + esc(g.phone) + '</div>' : '') +
