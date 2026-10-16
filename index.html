@@ -7,7 +7,6 @@
 <title>Check-in Sự Kiện · Đồng bộ</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-app-compat.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-database-compat.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -28,6 +27,8 @@
     --blue-text: #185fa5;
     --amber-bg: #faeeda;
     --amber-text: #854f0b;
+    --purple-bg: #efe6fb;
+    --purple-text: #5b3aa0;
     --red: #e24b4a;
     --red-bg: #fcebeb;
     --red-text: #a32d2d;
@@ -157,7 +158,7 @@
   }
 
   /* Filter row */
-  #filter-row { display: flex; gap: 8px; margin-bottom: 14px; align-items: center; }
+  #filter-row { display: flex; gap: 8px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
   #filter-row select {
     border: 1px solid var(--border2);
     background: var(--surface);
@@ -201,6 +202,7 @@
   }
   .badge-ticket { background: var(--blue-bg); color: var(--blue-text); }
   .badge-group { background: var(--amber-bg); color: var(--amber-text); }
+  .badge-table { background: var(--purple-bg); color: var(--purple-text); }
 
   .guest-time { font-size: 12px; color: var(--green-text); font-weight: 500; flex-shrink: 0; text-align: right; }
   .guest-time .by { display: block; color: var(--text3); font-weight: 400; }
@@ -315,7 +317,7 @@
   <div id="upload-zone">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
     <h2>Upload danh sách khách</h2>
-    <p>Cột 1: Họ và tên — Cột 2: Số điện thoại - Cột 3: Nguồn — Cột 4: Số lượng khách<br>Hàng đầu có thể là header, tool tự nhận diện</p>
+    <p>Cột 1: Họ và tên — Cột 2: Số điện thoại — Cột 3: Nguồn — Cột 4: Số lượng khách — Cột 5: Bàn<br>Hàng đầu có thể là header, tool tự nhận diện</p>
     <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none">
     <button class="btn btn-primary" id="choose-file-btn">↑ Chọn file Excel</button>
     <p class="hint">Hoặc kéo thả file vào đây · Danh sách và trạng thái check-in sẽ đồng bộ ngay cho mọi thiết bị đang mở trang này</p>
@@ -371,6 +373,9 @@
       </select>
       <select id="filter-ticket" onchange="render()" style="display:none;">
         <option value="all">Nguồn</option>
+      </select>
+      <select id="filter-table" onchange="render()" style="display:none;">
+        <option value="all">Bàn</option>
       </select>
       <span id="count-label">0 khách</span>
     </div>
@@ -592,7 +597,14 @@ function loadFile(file) {
         const name = String(r[0]||'').trim();
         if (!name) continue;
         const id = 'g' + i;
-        loaded[id] = { name, phone: String(r[1]||'').trim(), ticket: String(r[2]||'').trim(), group: String(r[3]||'').trim(), _order: order++ };
+        loaded[id] = {
+          name,
+          phone: String(r[1]||'').trim(),
+          ticket: String(r[2]||'').trim(),
+          group: String(r[3]||'').trim(),
+          table: String(r[4]||'').trim(),
+          _order: order++
+        };
       }
       if (!Object.keys(loaded).length) { toast('Không đọc được dữ liệu — kiểm tra lại file'); return; }
 
@@ -650,15 +662,20 @@ function focusSearchSoon(){ setTimeout(()=>{ const sb=document.getElementById('s
 function buildFilters() {
   const tickets = [...new Set(guests.map(g => g.ticket).filter(Boolean))];
   const groups = [...new Set(guests.map(g => g.group).filter(Boolean))];
+  const tables = [...new Set(guests.map(g => g.table).filter(Boolean))].sort((a,b)=> a.localeCompare(b, 'vi', {numeric:true}));
   const tSel = document.getElementById('filter-ticket');
   const gSel = document.getElementById('filter-group');
-  const prevT = tSel.value, prevG = gSel.value;
+  const bSel = document.getElementById('filter-table');
+  const prevT = tSel.value, prevG = gSel.value, prevB = bSel.value;
   tSel.innerHTML = '<option value="all">Nguồn</option>';
   gSel.innerHTML = '<option value="all">Số lượng khách</option>';
+  bSel.innerHTML = '<option value="all">Bàn</option>';
   if (tickets.length) { tickets.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; tSel.appendChild(o); }); tSel.style.display = ''; }
   if (groups.length) { groups.forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g; gSel.appendChild(o); }); gSel.style.display = ''; }
+  if (tables.length) { tables.forEach(b => { const o = document.createElement('option'); o.value = b; o.textContent = 'Bàn ' + b; bSel.appendChild(o); }); bSel.style.display = ''; }
   if([...tSel.options].some(o=>o.value===prevT)) tSel.value = prevT;
   if([...gSel.options].some(o=>o.value===prevG)) gSel.value = prevG;
+  if([...bSel.options].some(o=>o.value===prevB)) bSel.value = prevB;
 }
 
 /* ===================== Filtered list ────────────────────── */
@@ -667,12 +684,14 @@ function getFiltered() {
   const fs = document.getElementById('filter-status').value;
   const fg = document.getElementById('filter-group').value || 'all';
   const ft = document.getElementById('filter-ticket').value || 'all';
+  const fb = document.getElementById('filter-table').value || 'all';
   return guests.filter(g => {
-    const m = !q || g.name.toLowerCase().includes(q) || (g.phone || '').toLowerCase().includes(q) || g.ticket.toLowerCase().includes(q) || g.group.toLowerCase().includes(q);
+    const m = !q || g.name.toLowerCase().includes(q) || (g.phone || '').toLowerCase().includes(q) || g.ticket.toLowerCase().includes(q) || g.group.toLowerCase().includes(q) || (g.table || '').toLowerCase().includes(q);
     const s = fs === 'all' || (fs === 'done' && checkedMap[g.id]) || (fs === 'pending' && !checkedMap[g.id]);
     const gr = fg === 'all' || g.group === fg;
     const tk = ft === 'all' || g.ticket === ft;
-    return m && s && gr && tk;
+    const tb = fb === 'all' || g.table === fb;
+    return m && s && gr && tk && tb;
   });
 }
 
@@ -710,6 +729,7 @@ function render() {
     const info = document.createElement('div');
     info.className = 'guest-info';
     let badges = '';
+    if (g.table) badges += '<span class="badge badge-table">Bàn ' + esc(g.table) + '</span>';
     if (g.ticket) badges += '<span class="badge badge-ticket">' + esc(g.ticket) + '</span>';
     if (g.group) badges += '<span class="badge badge-group">' + esc(g.group) + '</span>';
     info.innerHTML =
@@ -845,18 +865,18 @@ async function doReset() {
 
 /* ===================== Export ───────────────────────────── */
 function exportXLSX() {
-  const rows = [['Họ tên', 'Số điện thoại', 'Nguồn', 'Số lượng khách', 'Trạng thái', 'Giờ check-in', 'Người check-in']];
+  const rows = [['Họ tên', 'Số điện thoại', 'Nguồn', 'Số lượng khách', 'Bàn', 'Trạng thái', 'Giờ check-in', 'Người check-in']];
   guests.forEach(g => {
     const c = checkedMap[g.id];
     rows.push([
-      g.name, g.phone, g.ticket, g.group,
+      g.name, g.phone, g.ticket, g.group, g.table,
       c ? 'Đã check-in' : 'Chưa đến',
       c ? c.time : '',
       c ? (c.by || '') : ''
     ]);
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+  ws['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Kết quả check-in');
   XLSX.writeFile(wb, 'ketqua-checkin-' + new Date().toLocaleDateString('vi-VN').replace(/\//g,'-') + '.xlsx');
